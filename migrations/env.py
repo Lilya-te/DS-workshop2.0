@@ -1,7 +1,12 @@
 """Alembic environment: async-режим с psycopg v3."""
 
 import asyncio
+import sys
 from logging.config import fileConfig
+
+# psycopg async на Windows не работает с ProactorEventLoop (дефолт с Python 3.8).
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from alembic import context
 from sqlalchemy import pool
