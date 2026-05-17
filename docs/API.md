@@ -29,8 +29,12 @@ pip install -r requirements.txt
 docker compose up -d              # поднимает Postgres 16 на хосте порт 5433
 cp .env.example .env              # дефолты подходят для локалки
 alembic upgrade head              # накатывает таблицу audit_log
-uvicorn app.main:app --reload     # API на http://localhost:8000
+python -m app                     # API на http://localhost:8000
 ```
+
+Запуск идёт через `python -m app` (а не `uvicorn app.main:app`), потому что на Windows нужно установить `WindowsSelectorEventLoopPolicy` до того, как uvicorn создаст свой event loop, иначе psycopg падает с `InterfaceError`. Враппер `app/__main__.py` ставит политику и передаёт uvicorn `loop="none"`, чтобы тот не затирал её собственным auto-setup. На Linux/macOS это no-op, команда работает одинаково.
+
+Если хочется hot-reload во время разработки — `python -m uvicorn app.main:app --reload --loop none` (важно `--loop none`, остальные настройки берёт из uvicorn defaults).
 
 Документация API: `http://localhost:8000/docs`. Корень `/` редиректит туда же.
 
