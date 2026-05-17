@@ -83,9 +83,7 @@ class IterationOrchestrator:
             )
 
             current_audit = await self._judge.audit(current_sql, db_schema)
-            current_classes = sorted(
-                f.vulnerability_class.value for f in current_audit.findings
-            )
+            current_classes = sorted(f.vulnerability_class.value for f in current_audit.findings)
 
             log.info(
                 "iteration.audited",

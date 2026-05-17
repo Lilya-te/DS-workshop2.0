@@ -1,6 +1,13 @@
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+extend-exclude = [
+    "baseline1.py",
+    "scripts",
+    "tests",
+    "migrations/versions",
+    ".venv",
+]
 
 [tool.ruff.lint]
 select = [
@@ -14,11 +21,11 @@ select = [
     "RUF", # ruff-specific
 ]
 ignore = [
-    "E501", # длина строки контролируется форматтером
+    "E501",   # длину строки контролирует форматтер
+    "RUF001", # ambiguous-unicode-character-string — ложные срабатывания на кириллице
+    "RUF002", # ambiguous-unicode-character-docstring — тоже шум для русских docstring
+    "RUF003", # ambiguous-unicode-character-comment — тоже шум для русских комментариев
 ]
-
-[tool.ruff.lint.per-file-ignores]
-"migrations/versions/*.py" = ["E402", "I"]
 
 [tool.ruff.format]
 quote-style = "double"

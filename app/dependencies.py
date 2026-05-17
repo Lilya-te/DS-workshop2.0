@@ -56,9 +56,7 @@ def get_judge(settings: SettingsDep) -> JudgeService:
     if settings.llm_provider == "stub":
         return _stub_judge()
     # TODO: подключение реальных провайдеров — Саша.
-    raise NotImplementedError(
-        f"Судья для провайдера {settings.llm_provider!r} ещё не подключён"
-    )
+    raise NotImplementedError(f"Судья для провайдера {settings.llm_provider!r} ещё не подключён")
 
 
 def get_repair(settings: SettingsDep) -> RepairService:
