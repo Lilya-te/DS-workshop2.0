@@ -3,7 +3,7 @@
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 
 class VulnerabilityClass(StrEnum):
@@ -21,9 +21,7 @@ class VulnerabilityClass(StrEnum):
 
 
 class VulnerabilityFinding(BaseModel):
-    """Одна находка аудитора."""
-
-    model_config = ConfigDict(use_enum_values=True)
+    """Одна находка аудитора. StrEnum сериализуется в JSON по value автоматически."""
 
     vulnerability_class: VulnerabilityClass
     risk_score: int = Field(ge=0, le=10)
