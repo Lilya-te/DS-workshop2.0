@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 
+from app.api.v1 import api_v1_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger, request_id_ctx
 
@@ -19,6 +20,8 @@ app = FastAPI(
     description="Многоагентная генерация и аудит безопасности SQL-запросов.",
     version="0.1.0",
 )
+
+app.include_router(api_v1_router)
 
 
 @app.middleware("http")
