@@ -1,18 +1,15 @@
-"""Точка входа FastAPI-приложения."""
+"""Точка входа FastAPI-приложения.
 
-import asyncio
-import sys
+Политика event loop для Windows-окружения выставляется в app/__init__.py —
+до любых импортов asyncio-кода.
+"""
+
 import time
 import uuid
 from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
-
-# psycopg async на Windows не работает с ProactorEventLoop (дефолт с Python 3.8).
-# Установка политики должна произойти до создания engine.
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from app.api.v1 import api_v1_router
 from app.core.config import get_settings
