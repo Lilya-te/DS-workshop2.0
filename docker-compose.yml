@@ -1,1 +1,22 @@
 # Docker Compose для локальной разработки.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: greendata_sql_postgres
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: greendata_sql
+      POSTGRES_USER: greendata
+      POSTGRES_PASSWORD: greendata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U greendata -d greendata_sql"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:

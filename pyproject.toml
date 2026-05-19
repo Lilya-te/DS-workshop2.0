@@ -1,0 +1,32 @@
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [
+    "baseline1.py",
+    "scripts",
+    "tests",
+    "migrations/versions",
+    ".venv",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "RUF", # ruff-specific
+]
+ignore = [
+    "E501",   # длину строки контролирует форматтер
+    "RUF001", # ambiguous-unicode-character-string — ложные срабатывания на кириллице
+    "RUF002", # ambiguous-unicode-character-docstring — тоже шум для русских docstring
+    "RUF003", # ambiguous-unicode-character-comment — тоже шум для русских комментариев
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
