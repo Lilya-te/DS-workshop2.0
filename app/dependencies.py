@@ -27,6 +27,7 @@ from app.services.judge.judge import JudgeService, StubJudge
 from app.services.orchestration import IterationOrchestrator
 from app.services.repair.llm_repair import LLMRepair
 from app.services.repair.repair import RepairService, StubRepair
+from app.services.judge.llm_judge import LLMJudge
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -71,6 +72,21 @@ def _llm_generator() -> LLMGenerator:
         top_k_tables=settings.schema_top_k_tables,
     )
 
+@lru_cache
+def _llm_judge() -> LLMJudge:
+    """Синглтон LLM-аудитора."""
+    settings = get_settings()
+    model = settings.effective_judge_model
+    if not model:
+        raise ValueError(
+            "Не задана модель аудитора. Укажи JUDGE_MODEL или LLM_MODEL в .env."
+        )
+    llm = build_llm_client(settings, model=model)
+    return LLMJudge(
+        llm=llm,
+        schema_cache=get_schema_cache(),
+        top_k_tables=settings.schema_top_k_tables,
+    )
 
 def get_generator(settings: SettingsDep) -> GeneratorService:
     if settings.llm_provider == "stub":
@@ -81,8 +97,7 @@ def get_generator(settings: SettingsDep) -> GeneratorService:
 def get_judge(settings: SettingsDep) -> JudgeService:
     if settings.llm_provider == "stub":
         return _stub_judge()
-    # TODO: подключение реальных провайдеров — Саша.
-    raise NotImplementedError(f"Судья для провайдера {settings.llm_provider!r} ещё не подключён")
+    return _llm_judge()
 
 
 @lru_cache
