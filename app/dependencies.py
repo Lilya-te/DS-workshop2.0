@@ -19,14 +19,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings, get_settings
 from app.db.repositories.audit_repository import AuditRepository
 from app.db.session import get_session
+from app.services._shared.llm_factory import build_llm_client
+from app.services._shared.schema_cache import SchemaCache
 from app.services.generator.generator import GeneratorService, StubGenerator
+from app.services.generator.llm_generator import LLMGenerator
 from app.services.judge.judge import JudgeService, StubJudge
 from app.services.orchestration import IterationOrchestrator
+from app.services.repair.llm_repair import LLMRepair
 from app.services.repair.repair import RepairService, StubRepair
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
+
+@lru_cache
+def get_schema_cache() -> SchemaCache:
+    """Синглтон кеша схемы. Загружается при старте приложения (lifespan)."""
+    return SchemaCache()
+
+
+SchemaCacheDep = Annotated[SchemaCache, Depends(get_schema_cache)]
 
 @lru_cache
 def _stub_generator() -> StubGenerator:
@@ -43,13 +55,27 @@ def _stub_repair() -> StubRepair:
     return StubRepair()
 
 
+@lru_cache
+def _llm_generator() -> LLMGenerator:
+    """Синглтон LLM-генератора."""
+    settings = get_settings()
+    model = settings.effective_generator_model
+    if not model:
+        raise ValueError(
+            "Не задана модель генератора. Укажи GENERATOR_MODEL или LLM_MODEL в .env."
+        )
+    llm = build_llm_client(settings, model=model)
+    return LLMGenerator(
+        llm=llm,
+        schema_cache=get_schema_cache(),
+        top_k_tables=settings.schema_top_k_tables,
+    )
+
+
 def get_generator(settings: SettingsDep) -> GeneratorService:
     if settings.llm_provider == "stub":
         return _stub_generator()
-    # TODO: подключение реальных провайдеров (openai, yandexgpt) — Егор.
-    raise NotImplementedError(
-        f"Генератор для провайдера {settings.llm_provider!r} ещё не подключён"
-    )
+    return _llm_generator()
 
 
 def get_judge(settings: SettingsDep) -> JudgeService:
@@ -59,12 +85,27 @@ def get_judge(settings: SettingsDep) -> JudgeService:
     raise NotImplementedError(f"Судья для провайдера {settings.llm_provider!r} ещё не подключён")
 
 
+@lru_cache
+def _llm_repair() -> LLMRepair:
+    """Синглтон LLM-репаратора."""
+    settings = get_settings()
+    model = settings.effective_repair_model
+    if not model:
+        raise ValueError(
+            "Не задана модель репаратора. Укажи REPAIR_MODEL или LLM_MODEL в .env."
+        )
+    llm = build_llm_client(settings, model=model)
+    return LLMRepair(
+        llm=llm,
+        schema_cache=get_schema_cache(),
+        top_k_tables=settings.schema_top_k_tables,
+    )
+
+
 def get_repair(settings: SettingsDep) -> RepairService:
     if settings.llm_provider == "stub":
         return _stub_repair()
-    raise NotImplementedError(
-        f"Репаратор для провайдера {settings.llm_provider!r} ещё не подключён"
-    )
+    return _llm_repair()
 
 
 GeneratorDep = Annotated[GeneratorService, Depends(get_generator)]
