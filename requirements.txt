@@ -9,3 +9,13 @@ alembic
 
 # Dev tools
 ruff
+
+# LLM-эксперименты (notebooks/)
+openai>=1.40.0
+sqlglot>=25.0.0
+python-dotenv>=1.0.0
+
+# Notebooks и анализ
+jupyter>=1.0.0
+notebook>=7.0.0
+pandas>=2.0.0
