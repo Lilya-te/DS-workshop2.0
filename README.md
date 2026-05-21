@@ -46,3 +46,4 @@ docker compose run --rm api alembic upgrade head
 ```
 docker compose exec api alembic upgrade head
 ```
+## UNIT TESTS
