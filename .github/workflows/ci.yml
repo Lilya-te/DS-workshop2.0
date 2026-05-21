@@ -9,9 +9,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Ruff
+        run: pip install ruff
+
+      - name: Collect changed Python files
+        id: changed
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          git diff --name-only --diff-filter=ACMR "${BASE_SHA}" "${HEAD_SHA}" \
+            | grep -E '\.(py|pyi)$' \
+            | grep -v -E '^tests/' \
+            | grep -v -E '^migrations/versions/' \
+            | grep -v -E '^baseline1\.py$' \
+            | grep -v -E '^scripts/' \
+            > changed_py_files.txt || true
+
+          if [ ! -s changed_py_files.txt ]; then
+            echo "has_files=false" >> "$GITHUB_OUTPUT"
+            echo "No Python files changed in this PR — lint skipped."
+            exit 0
+          fi
+
+          echo "has_files=true" >> "$GITHUB_OUTPUT"
+          echo "Changed Python files:"
+          cat changed_py_files.txt
+
+      - name: Ruff check
+        if: steps.changed.outputs.has_files == 'true'
+        run: xargs -a changed_py_files.txt ruff check
+
+      - name: Ruff format
+        if: steps.changed.outputs.has_files == 'true'
+        run: xargs -a changed_py_files.txt ruff format --check
+
   test:
     name: Tests
     runs-on: ubuntu-latest
+    needs: lint
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,7 +81,7 @@ jobs:
           APP_ENV: dev
           LLM_PROVIDER: stub
           PYTHONPATH: .
-        run: pytest app/tests/services/test_health.py
+        run: pytest app/tests -v --tb=short
 
   docker-build:
     name: Docker build
