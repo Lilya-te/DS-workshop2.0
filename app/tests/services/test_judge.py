@@ -6,9 +6,8 @@ import asyncio
 import json
 from typing import Any
 
-import pytest
 
-from app.schemas.sql import AuditResult, VulnerabilityClass, VulnerabilityFinding
+from app.schemas.sql import VulnerabilityClass, VulnerabilityFinding
 from app.services._shared.llm_client import LLMResponse
 from app.services._shared.schema_cache import SchemaCache
 from app.services.judge.judge import StubJudge
