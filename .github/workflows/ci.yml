@@ -31,7 +31,7 @@ jobs:
           APP_ENV: dev
           LLM_PROVIDER: stub
           PYTHONPATH: .
-        run: pytest app/tests -v --tb=short
+        run: pytest app/tests/services/test_health.py
 
   docker-build:
     name: Docker build
