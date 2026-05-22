@@ -37,9 +37,52 @@ jobs:
     name: Docker build
     runs-on: ubuntu-latest
     needs: test
+    env:
+      APP_ENV: dev
+      LOG_LEVEL: INFO
+      LLM_PROVIDER: stub
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+      LLM_MODEL: ${{ secrets.LLM_MODEL }}
+      GENERATOR_MODEL: ${{ secrets.GENERATOR_MODEL }}
+      REPAIR_MODEL: ${{ secrets.REPAIR_MODEL }}
+      JUDGE_MODEL: ${{ secrets.JUDGE_MODEL }}
+      LLM_TEMPERATURE: "0.2"
+      LLM_MAX_TOKENS: "1024"
+      LLM_TIMEOUT: "60.0"
+      LLM_MAX_RETRIES: "4"
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: greendata_sql
+      POSTGRES_USER: greendata
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Build API image
         run: docker build -f docker/api.Dockerfile -t sql-guard-api:ci .
+
+      - name: Smoke test image with repository env
+        run: |
+          docker run --rm \
+            --env APP_ENV \
+            --env LOG_LEVEL \
+            --env LLM_PROVIDER \
+            --env LLM_API_KEY \
+            --env LLM_BASE_URL \
+            --env LLM_MODEL \
+            --env GENERATOR_MODEL \
+            --env REPAIR_MODEL \
+            --env JUDGE_MODEL \
+            --env LLM_TEMPERATURE \
+            --env LLM_MAX_TOKENS \
+            --env LLM_TIMEOUT \
+            --env LLM_MAX_RETRIES \
+            --env POSTGRES_HOST \
+            --env POSTGRES_PORT \
+            --env POSTGRES_DB \
+            --env POSTGRES_USER \
+            --env POSTGRES_PASSWORD \
+            sql-guard-api:ci \
+            python -c "from app.core.config import get_settings; get_settings(); print('config ok')"
