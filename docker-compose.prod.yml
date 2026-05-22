@@ -1,1 +1,48 @@
-# Docker Compose для production-подобного запуска.
+# Production stack on VM: pull API image from GHCR, Postgres on the same host.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: greendata_sql_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./data_model.sql:/schema/data_model.sql:ro
+      - ./docker/postgres/apply_data_model.sh:/schema/apply_data_model.sh:ro
+      - ./docker/postgres/apply_data_model.sh:/docker-entrypoint-initdb.d/02_apply_data_model.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    image: ${IMAGE}
+    container_name: greendata_sql_api
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      APP_ENV: prod
+      LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_BASE_URL: ${LLM_BASE_URL}
+      LLM_MODEL: ${LLM_MODEL}
+      GENERATOR_MODEL: ${GENERATOR_MODEL}
+      REPAIR_MODEL: ${REPAIR_MODEL}
+      JUDGE_MODEL: ${JUDGE_MODEL}
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+volumes:
+  postgres_data:
