@@ -69,6 +69,7 @@ jobs:
       - name: Smoke test image with repository secrets
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          docker pull "$IMAGE"
           docker run --rm \
             --env LLM_API_KEY \
             --env LLM_BASE_URL \
