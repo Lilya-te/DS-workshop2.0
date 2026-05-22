@@ -91,7 +91,7 @@ jobs:
       contents: read
       packages: read
     env:
-      IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+      IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
       LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
       LLM_MODEL: ${{ secrets.LLM_MODEL }}

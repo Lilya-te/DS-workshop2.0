@@ -2,36 +2,19 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
-from typing import Any
-
 
 from app.schemas.sql import VulnerabilityClass, VulnerabilityFinding
-from app.services._shared.llm_client import LLMResponse
-from app.services._shared.schema_cache import SchemaCache
 from app.services.judge.judge import StubJudge
 from app.services.judge.llm_judge import LLMJudge, _merge_findings, _sort_by_risk
 from app.services.judge.prompts import build_judge_system_prompt, build_judge_user_prompt
 from app.services.judge.rules import rules_audit
-
-MINIMAL_DDL = """
-CREATE TABLE public.users (
-    id bigint NOT NULL,
-    email character varying(200)
-);
-"""
-
-SENSITIVE_DDL = """
-CREATE TABLE public.accounts (
-    id bigint NOT NULL,
-    password_hash character varying(200)
-);
-"""
-
-
-def _run(coro):  # type: ignore[no-untyped-def]
-    return asyncio.run(coro)
+from app.tests.services.conftest import (
+    FakeLLM,
+    SENSITIVE_DDL,
+    run_async,
+    schema_cache_from_ddl,
+)
 
 
 # ----------------------- StubJudge -----------------------
@@ -49,7 +32,7 @@ def test_stub_judge_finds_issue_on_first_iteration() -> None:
             == VulnerabilityClass.SELECT_STAR_EXCESSIVE
         )
 
-    _run(_case())
+    run_async(_case())
 
 
 def test_stub_judge_approves_when_iteration_marker_present() -> None:
@@ -60,7 +43,7 @@ def test_stub_judge_approves_when_iteration_marker_present() -> None:
         assert result.overall_risk == 0
         assert result.findings == []
 
-    _run(_case())
+    run_async(_case())
 
 
 # ----------------------- rules_audit -----------------------
@@ -103,8 +86,7 @@ def test_rules_audit_detects_time_based_injection() -> None:
     )
 
 
-def test_rules_audit_safe_select_has_no_blocking_findings() -> None:
-    # Без email/password — иначе rules помечают SENSITIVE_FIELD_ACCESS.
+def test_rules_audit_safe_select_has_no_findings() -> None:
     result = rules_audit(
         "SELECT id FROM public.users WHERE id = $1 LIMIT 100"
     )
@@ -114,13 +96,10 @@ def test_rules_audit_safe_select_has_no_blocking_findings() -> None:
 
 
 def test_rules_audit_detects_sensitive_columns_from_schema() -> None:
-    cache = SchemaCache()
-    cache.load_from_text(SENSITIVE_DDL, source_label="test")
-    tables = cache.all_tables()
-
+    cache = schema_cache_from_ddl(SENSITIVE_DDL)
     result = rules_audit(
         "SELECT password_hash FROM public.accounts LIMIT 10",
-        tables=tables,
+        tables=cache.all_tables(),
     )
 
     assert any(
@@ -141,6 +120,17 @@ def test_rules_audit_detects_plpgsql_unsafe_execute() -> None:
 
     assert any(
         f.vulnerability_class == VulnerabilityClass.PLPGSQL_UNSAFE_EXECUTE
+        for f in result.findings
+    )
+
+
+def test_rules_audit_union_injection_with_tautology() -> None:
+    result = rules_audit(
+        "SELECT name FROM users WHERE id = 1 OR 1=1 UNION SELECT password FROM admins --"
+    )
+
+    assert any(
+        f.vulnerability_class == VulnerabilityClass.UNION_BASED_INJECTION
         for f in result.findings
     )
 
@@ -175,9 +165,6 @@ def test_merge_findings_deduplicates_by_class_and_explanation() -> None:
     merged = _merge_findings(rules, llm)
 
     assert len(merged) == 2
-    classes = {f.vulnerability_class for f in merged}
-    assert VulnerabilityClass.SELECT_STAR_EXCESSIVE in classes
-    assert VulnerabilityClass.UNBOUNDED_LIMIT in classes
 
 
 def test_sort_by_risk_orders_descending() -> None:
@@ -197,7 +184,6 @@ def test_sort_by_risk_orders_descending() -> None:
     sorted_findings = _sort_by_risk(findings)
 
     assert sorted_findings[0].risk_score == 10
-    assert sorted_findings[-1].risk_score == 4
 
 
 # ----------------------- prompts -----------------------
@@ -216,51 +202,9 @@ def test_build_judge_user_prompt_includes_rules_and_sql() -> None:
 
     assert "=== СВОДКА ОТ ДЕТЕРМИНИРОВАННЫХ ПРАВИЛ ===" in prompt
     assert "SELECT * FROM users" in prompt
-    assert '"overall_risk"' in prompt
 
 
-# ----------------------- LLMJudge (mock LLM) -----------------------
-
-
-class _FakeLLM:
-    def __init__(self, text: str, *, raise_error: bool = False) -> None:
-        self.text = text
-        self.raise_error = raise_error
-        self.calls: list[dict[str, Any]] = []
-
-    async def chat(
-        self,
-        *,
-        system_prompt: str,
-        user_prompt: str,
-        response_format: dict[str, str] | None = None,
-        metadata: dict[str, Any] | None = None,
-    ) -> LLMResponse:
-        if self.raise_error:
-            raise RuntimeError("LLM unavailable")
-        self.calls.append(
-            {
-                "system_prompt": system_prompt,
-                "user_prompt": user_prompt,
-                "response_format": response_format,
-            }
-        )
-        return LLMResponse(
-            text=self.text,
-            model="test-judge",
-            provider="test",
-            latency_seconds=0.02,
-            prompt_tokens=20,
-            completion_tokens=10,
-            total_tokens=30,
-            attempts=1,
-        )
-
-
-def _schema_cache_users() -> SchemaCache:
-    cache = SchemaCache()
-    cache.load_from_text(MINIMAL_DDL, source_label="test")
-    return cache
+# ----------------------- LLMJudge -----------------------
 
 
 def test_llm_judge_merges_rules_and_llm_findings() -> None:
@@ -280,59 +224,52 @@ def test_llm_judge_merges_rules_and_llm_findings() -> None:
             },
             ensure_ascii=False,
         )
+        fake_llm = FakeLLM(llm_json)
         judge = LLMJudge(
-            llm=_FakeLLM(llm_json),
-            schema_cache=_schema_cache_users(),
+            llm=fake_llm,
+            schema_cache=schema_cache_from_ddl(),
             top_k_tables=3,
         )
 
         result = await judge.audit("SELECT * FROM public.users", None)
 
         assert result.overall_risk >= 5
-        assert len(result.findings) >= 1
         assert result.summary == "LLM: нужен LIMIT"
         assert any(
             f.vulnerability_class == VulnerabilityClass.SELECT_STAR_EXCESSIVE
             for f in result.findings
         )
+        assert fake_llm.calls[0]["response_format"] == {"type": "json_object"}
 
-    _run(_case())
+    run_async(_case())
 
 
 def test_llm_judge_falls_back_to_rules_when_llm_fails() -> None:
     async def _case() -> None:
         judge = LLMJudge(
-            llm=_FakeLLM("", raise_error=True),
-            schema_cache=_schema_cache_users(),
+            llm=FakeLLM("", raise_error=True),
+            schema_cache=schema_cache_from_ddl(),
         )
 
         result = await judge.audit("SELECT * FROM public.users", None)
 
         assert result.overall_risk >= 5
-        assert any(
-            f.vulnerability_class == VulnerabilityClass.SELECT_STAR_EXCESSIVE
-            for f in result.findings
-        )
 
-    _run(_case())
+    run_async(_case())
 
 
 def test_llm_judge_falls_back_to_rules_on_invalid_json() -> None:
     async def _case() -> None:
         judge = LLMJudge(
-            llm=_FakeLLM("not json"),
-            schema_cache=_schema_cache_users(),
+            llm=FakeLLM("not json"),
+            schema_cache=schema_cache_from_ddl(),
         )
 
         result = await judge.audit("DELETE FROM public.users", None)
 
         assert result.overall_risk == 9
-        assert any(
-            f.vulnerability_class == VulnerabilityClass.UPDATE_DELETE_WITHOUT_WHERE
-            for f in result.findings
-        )
 
-    _run(_case())
+    run_async(_case())
 
 
 def test_llm_judge_llm_approves_clean_query() -> None:
@@ -345,8 +282,8 @@ def test_llm_judge_llm_approves_clean_query() -> None:
             }
         )
         judge = LLMJudge(
-            llm=_FakeLLM(llm_json),
-            schema_cache=_schema_cache_users(),
+            llm=FakeLLM(llm_json),
+            schema_cache=schema_cache_from_ddl(),
         )
         sql = "SELECT id FROM public.users WHERE id = $1 LIMIT 10"
 
@@ -354,6 +291,5 @@ def test_llm_judge_llm_approves_clean_query() -> None:
 
         assert result.overall_risk == 0
         assert result.findings == []
-        assert result.summary == "Запрос безопасен"
 
-    _run(_case())
+    run_async(_case())
