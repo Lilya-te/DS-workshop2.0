@@ -18,13 +18,18 @@ PROVIDER_BASE_URLS: dict[str, str] = {
 }
 
 
-def build_llm_client(settings: Settings, model: str) -> LLMClient:
+def build_llm_client(
+    settings: Settings,
+    model: str,
+    *,
+    provider: str | None = None,
+) -> LLMClient:
     """Создаёт LLMClient для заданной модели по настройкам приложения.
 
     base_url берётся из llm_base_url (если задан явно) или из реестра
     по имени провайдера. api_key -- из llm_api_key (для ollama не обязателен).
     """
-    provider = settings.llm_provider
+    provider = provider or settings.llm_provider
 
     # base_url: явный override или из реестра
     base_url = settings.llm_base_url or PROVIDER_BASE_URLS.get(provider)

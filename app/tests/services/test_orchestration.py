@@ -19,6 +19,18 @@ class FakeAuditRepository:
     async def record_iteration(self, **kwargs: Any) -> None:
         self.records.append(kwargs)
 
+    async def record_run_failure(self, **kwargs: Any) -> None:
+        self.records.append(kwargs)
+
+    async def set_request_duration(
+        self, request_id: str, duration_seconds: float
+    ) -> None:
+        _ = request_id, duration_seconds
+
+    async def get_by_request_id(self, request_id: str) -> list:
+        _ = request_id
+        return []
+
 
 def test_orchestrator_stub_cycle_approves_in_two_iterations() -> None:
     async def _case() -> None:
@@ -45,6 +57,7 @@ def test_orchestrator_stub_cycle_approves_in_two_iterations() -> None:
         assert result.iterations[1].decision == "approved"
         assert len(repo.records) == 2
         assert repo.records[0]["iteration"] == 1
+        assert repo.records[0]["llm_model"] == "stub"
         assert repo.records[1]["decision"] == "approved"
 
     run_async(_case())
@@ -69,6 +82,44 @@ def test_orchestrator_respects_max_iterations_limit() -> None:
         assert result.final_sql is None
         assert result.total_iterations == 1
         assert result.iterations[0].decision == "needs_fix"
+
+    run_async(_case())
+
+
+class FailingGenerator:
+    async def generate(
+        self,
+        task_description: str,
+        db_schema: dict | None,
+    ) -> str:
+        _ = task_description, db_schema
+        raise RuntimeError("LLM unavailable")
+
+
+def test_orchestrator_records_failure_on_exception() -> None:
+    async def _case() -> None:
+        repo = FakeAuditRepository()
+        orchestrator = IterationOrchestrator(
+            generator=FailingGenerator(),
+            judge=StubJudge(),
+            repair=StubRepair(),
+            audit_repo=repo,
+            max_iterations=5,
+            llm_model="test-model",
+        )
+
+        result = await orchestrator.run(
+            task_description="тестовая задача",
+            db_schema=None,
+        )
+
+        assert result.status == "failed"
+        assert result.error_code == "RuntimeError"
+        assert result.error_message == "LLM unavailable"
+        assert len(repo.records) == 1
+        assert repo.records[0]["error_code"] == "RuntimeError"
+        assert repo.records[0]["error_message"] == "LLM unavailable"
+        assert repo.records[0]["llm_model"] == "test-model"
 
     run_async(_case())
 

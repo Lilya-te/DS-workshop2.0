@@ -10,7 +10,11 @@ docker compose build
 docker compose up -d
 docker compose run --rm api alembic upgrade head
 ```
-Документация API будет доступна локально [тут](http://127.0.0.1:8000/docs)
+Веб-интерфейс генерации SQL: [http://127.0.0.1:8000/](http://127.0.0.1:8000/) — на форме можно выбрать провайдер LLM и модель (для реальных провайдеров нужен `LLM_API_KEY` в `.env`).
+
+Журнал аудита: [http://127.0.0.1:8000/audit_log](http://127.0.0.1:8000/audit_log).
+
+Документация API: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
 ### Схема GreenData (`data_model.sql`)
 
@@ -41,6 +45,12 @@ docker compose exec postgres psql -U greendata -d greendata_sql -c "\dt public.*
 docker compose run --rm api alembic upgrade head
 ```
 
+Миграция `0002_audit_log_llm_model` добавляет в `audit_log` колонку `llm_model` (модель, использованная при генерации).
+
+Миграция `0003_audit_log_error_fields` добавляет `error_code` и `error_message` для сбоев генерации.
+
+Миграция `0004_audit_log_duration` добавляет `duration_seconds` (время выполнения запроса).
+
 Если `api` уже запущен:
 
 ```
@@ -49,5 +59,5 @@ docker compose exec api alembic upgrade head
 
 ## UNIT TESTS
 ```
-APP_ENV=dev LLM_PROVIDER=stub PYTHONPATH=. pytest app/tests/services/test_health.py -v
+APP_ENV=dev LLM_PROVIDER=stub PYTHONPATH=. pytest app/tests/ -v
 ```

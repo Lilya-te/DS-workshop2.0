@@ -8,10 +8,11 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import RedirectResponse
 
+from app.api.ui import router as ui_router
 from app.api.v1 import api_v1_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger, request_id_ctx
@@ -20,6 +21,18 @@ from app.dependencies import get_schema_cache
 settings = get_settings()
 configure_logging(settings.log_level)
 log = get_logger("app")
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _resolve_schema_path(configured: str) -> Path | None:
+    """Ищет DDL-схему: cwd, затем корень репозитория."""
+    raw = Path(configured)
+    candidates = [raw] if raw.is_absolute() else [Path.cwd() / raw, _REPO_ROOT / raw]
+    for path in candidates:
+        if path.exists():
+            return path.resolve()
+    return None
 
 
 @asynccontextmanager
@@ -31,10 +44,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     (stub-провайдер схему не использует, сервис должен подняться).
     """
     cache = get_schema_cache()
-    try:
-        cache.load_from_file(settings.db_schema_path)
-        log.info("startup.schema_loaded", tables=cache.tables_count())
-    except FileNotFoundError:
+    schema_path = _resolve_schema_path(settings.db_schema_path)
+    if schema_path is not None:
+        cache.load_from_file(schema_path)
+        log.info(
+            "startup.schema_loaded",
+            path=str(schema_path),
+            tables=cache.tables_count(),
+        )
+    else:
         log.warning(
             "startup.schema_not_found",
             path=settings.db_schema_path,
@@ -51,6 +69,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.include_router(ui_router)
 app.include_router(api_v1_router)
 
 
@@ -88,7 +107,3 @@ async def request_id_middleware(
     finally:
         request_id_ctx.reset(token)
 
-
-@app.get("/", include_in_schema=False)
-async def root() -> RedirectResponse:
-    return RedirectResponse(url="/docs")

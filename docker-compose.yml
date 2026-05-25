@@ -38,6 +38,7 @@ services:
       LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-1024}
       LLM_TIMEOUT: ${LLM_TIMEOUT:-60.0}
       LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-4}
+      DB_SCHEMA_PATH: /app/data_model.sql
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: greendata_sql
@@ -50,6 +51,7 @@ services:
       - ./app:/app/app
       - ./migrations:/app/migrations
       - ./alembic.ini:/app/alembic.ini
+      - ./data_model.sql:/app/data_model.sql:ro
     restart: unless-stopped
 
 volumes:

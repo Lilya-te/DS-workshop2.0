@@ -26,6 +26,10 @@ class AuditLog(Base):
     # Полный AuditResult сериализуем в JSONB — нативный тип PostgreSQL.
     audit_result: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    llm_model: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_seconds: Mapped[float | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
