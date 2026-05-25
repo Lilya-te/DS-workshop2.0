@@ -59,5 +59,5 @@ docker compose exec api alembic upgrade head
 
 ## UNIT TESTS
 ```
-APP_ENV=dev LLM_PROVIDER=stub PYTHONPATH=. pytest app/tests/services/test_health.py -v
+APP_ENV=dev LLM_PROVIDER=stub PYTHONPATH=. pytest app/tests/ -v
 ```

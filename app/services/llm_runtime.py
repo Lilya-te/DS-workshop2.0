@@ -21,6 +21,7 @@ log = get_logger("app.llm_runtime")
 LlmProvider = Literal["stub", "openrouter", "ollama", "openai", "yandexgpt"]
 
 LLM_PROVIDER_CHOICES: list[tuple[str, str]] = [
+    ("stub", "Stub (без LLM, для тестов)"),
     ("openrouter", "OpenRouter"),
 ]
 

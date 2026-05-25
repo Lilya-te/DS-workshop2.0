@@ -27,6 +27,10 @@ class FakeAuditRepository:
     ) -> None:
         _ = request_id, duration_seconds
 
+    async def get_by_request_id(self, request_id: str) -> list:
+        _ = request_id
+        return []
+
 
 def test_orchestrator_stub_cycle_approves_in_two_iterations() -> None:
     async def _case() -> None:

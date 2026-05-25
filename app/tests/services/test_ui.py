@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.dependencies import get_audit_repo
 from app.main import app
 from app.schemas.sql import GenerateResponse
+from app.services.llm_runtime import LLM_MODEL_CHOICES
 from app.tests.services.test_orchestration import FakeAuditRepository
 
 
@@ -35,9 +36,8 @@ def test_index_returns_form(client: TestClient) -> None:
     assert 'name="task_description"' in body
     assert 'name="llm_provider"' in body
     assert 'name="llm_model"' in body
-    assert "deepseek/deepseek-chat" in body
-    assert "qwen/qwen3-coder:free" in body
-    assert "openai/gpt-oss-20b:free" in body
+    for model in LLM_MODEL_CHOICES:
+        assert model in body
     assert "Сгенерировать SQL" in body
 
 
@@ -97,14 +97,17 @@ def test_generate_form_redirects_to_audit_log_on_failure(
             "/",
             data={
                 "task_description": "тест",
-                "llm_provider": "stub",
-                "llm_model": "",
+                "llm_provider": "openrouter",
+                "llm_model": LLM_MODEL_CHOICES[0],
             },
             follow_redirects=False,
         )
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/audit_log/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    assert (
+        response.headers["location"]
+        == "/audit_log/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    )
 
 
 def test_generate_form_redirects_on_setup_error(client: TestClient) -> None:
