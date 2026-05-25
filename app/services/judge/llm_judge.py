@@ -24,7 +24,7 @@ from app.schemas.sql import AuditResult, VulnerabilityFinding
 from app.services._shared.llm_client import LLMClient
 from app.services._shared.schema_cache import SchemaCache
 from app.services._shared.schema_parser import schema_detailed
-from app.services._shared.table_selector import TableSelector
+from app.services._shared.table_selector import HybridTableSelector
 from app.services.judge.prompts import (
     build_judge_system_prompt,
     build_judge_user_prompt,
@@ -81,15 +81,20 @@ class LLMJudge:
         self._schema = schema_cache
         self._top_k = top_k_tables
         # Селектор строится один раз на текущей схеме; пересоздаётся при reload.
-        self._selector: TableSelector | None = None
+        self._selector: HybridTableSelector | None = None
         self._selector_fingerprint: int = -1
 
-    def _get_selector(self) -> TableSelector:
-        """Лениво строит/пересоздаёт селектор, если схема изменилась."""
+    def _get_selector(self) -> HybridTableSelector:
+        """Лениво строит/пересоздаёт селектор, если схема изменилась.
+
+        Пока без эмбеддингов (emb_model=None) -- поведение эквивалентно
+        лексическому TableSelector. Семантику можно включить, прокинув
+        emb_model из llm_runtime (как у генератора/репаратора).
+        """
         tables = self._schema.all_tables()
         fingerprint = id(tables)
         if self._selector is None or fingerprint != self._selector_fingerprint:
-            self._selector = TableSelector(tables)
+            self._selector = HybridTableSelector(tables, emb_model=None)
             self._selector_fingerprint = fingerprint
         return self._selector
 

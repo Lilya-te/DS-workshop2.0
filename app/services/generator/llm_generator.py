@@ -21,7 +21,7 @@ from app.core.logging import get_logger
 from app.services._shared.llm_client import LLMClient
 from app.services._shared.schema_cache import SchemaCache
 from app.services._shared.schema_parser import schema_detailed
-from app.services._shared.table_selector import TableSelector
+from app.services._shared.table_selector import HybridTableSelector
 from app.services.generator.prompts import build_system_prompt, build_user_prompt
 
 log = get_logger("app.generator")
@@ -135,21 +135,23 @@ class LLMGenerator:
         llm: LLMClient,
         schema_cache: SchemaCache,
         top_k_tables: int = 5,
+        emb_model=None,
     ) -> None:
         self._llm = llm
         self._schema = schema_cache
         self._top_k = top_k_tables
+        self._emb_model = emb_model
         # Селектор строится один раз на текущей схеме.
         # При reload схемы пересоздаётся (см. _get_selector).
-        self._selector: TableSelector | None = None
+        self._selector: HybridTableSelector | None = None
         self._selector_fingerprint: int = -1
 
-    def _get_selector(self) -> TableSelector:
+    def _get_selector(self) -> HybridTableSelector:
         """Лениво строит/пересоздаёт селектор, если схема изменилась."""
         tables = self._schema.all_tables()
         fingerprint = id(tables)  # меняется при reload (новый список)
         if self._selector is None or fingerprint != self._selector_fingerprint:
-            self._selector = TableSelector(tables)
+            self._selector = HybridTableSelector(tables, emb_model=self._emb_model)
             self._selector_fingerprint = fingerprint
         return self._selector
 
