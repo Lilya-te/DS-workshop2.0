@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY alembic.ini .
 COPY migrations ./migrations
+COPY data_model.sql .
 COPY app ./app
 
 EXPOSE 8000

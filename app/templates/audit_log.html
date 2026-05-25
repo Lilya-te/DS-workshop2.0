@@ -41,12 +41,24 @@
                     <div class="d-flex flex-wrap gap-2">
                         {% if group.final_status == "approved" %}
                         <span class="badge text-bg-success">{{ group.final_status }}</span>
+                        {% elif group.final_status == "failed" %}
+                        <span class="badge text-bg-danger">{{ group.final_status }}</span>
                         {% else %}
                         <span class="badge text-bg-warning text-dark">{{ group.final_status }}</span>
                         {% endif %}
                         <span class="badge text-bg-secondary">
                             итераций: {{ group.total_iterations }}
                         </span>
+                        {% if group.llm_model %}
+                        <span class="badge text-bg-info text-dark">
+                            модель: {{ group.llm_model }}
+                        </span>
+                        {% endif %}
+                        {% if group.duration_seconds is not none %}
+                        <span class="badge text-bg-light text-dark border">
+                            {{ "%.2f"|format(group.duration_seconds) }} с
+                        </span>
+                        {% endif %}
                     </div>
                 </div>
                 <p class="card-text mb-1">

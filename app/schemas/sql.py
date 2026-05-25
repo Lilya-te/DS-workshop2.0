@@ -54,10 +54,12 @@ class GenerateRequest(BaseModel):
 
 class GenerateResponse(BaseModel):
     request_id: str
-    status: Literal["approved", "iteration_limit_exceeded"]
+    status: Literal["approved", "iteration_limit_exceeded", "failed"]
     final_sql: str | None
     iterations: list[IterationStep]
     total_iterations: int = Field(ge=0)
+    error_code: str | None = None
+    error_message: str | None = None
 
 
 class AuditRequest(BaseModel):

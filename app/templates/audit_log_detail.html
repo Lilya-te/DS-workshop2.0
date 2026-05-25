@@ -33,6 +33,8 @@
                 <h1 class="h4 mb-0">Лог запроса</h1>
                 {% if final_status == "approved" %}
                 <span class="badge text-bg-success">{{ final_status }}</span>
+                {% elif final_status == "failed" %}
+                <span class="badge text-bg-danger">{{ final_status }}</span>
                 {% else %}
                 <span class="badge text-bg-warning text-dark">{{ final_status }}</span>
                 {% endif %}
@@ -41,6 +43,8 @@
             <p class="text-muted small mb-2">
                 request_id: <code>{{ request_id }}</code> ·
                 итераций: {{ total_iterations }}
+                {% if llm_model %} · модель: <code>{{ llm_model }}</code>{% endif %}
+                · время: <strong>{{ duration_display }}</strong>
             </p>
 
             {% if task_description %}
@@ -48,15 +52,24 @@
             <p class="mb-3">{{ task_description }}</p>
             {% endif %}
 
-            {% if final_sql %}
+            {% if final_status == "failed" and error_message %}
+            <div class="alert alert-danger" role="alert">
+                <h2 class="h6 alert-heading">Ошибка выполнения</h2>
+                {% if error_code %}
+                <p class="mb-2"><strong>Код:</strong> <code>{{ error_code }}</code></p>
+                {% endif %}
+                <p class="mb-0"><strong>Сообщение:</strong> {{ error_message }}</p>
+            </div>
+            {% elif final_sql %}
             <h2 class="h6">Финальный SQL</h2>
             <pre class="bg-dark text-light p-3 rounded"><code>{{ final_sql }}</code></pre>
-            {% else %}
+            {% elif final_status != "failed" %}
             <div class="alert alert-warning" role="alert">
                 Безопасный SQL не получен в пределе лимита итераций.
             </div>
             {% endif %}
 
+            {% if entries %}
             <h2 class="h6 mt-4">Итерации</h2>
             <div class="accordion" id="iterationsAccordion">
                 {% for entry in entries %}
@@ -112,6 +125,9 @@
                 </div>
                 {% endfor %}
             </div>
+            {% elif final_status == "failed" %}
+            <p class="text-muted small mb-0">Успешных итераций до ошибки не было.</p>
+            {% endif %}
         </div>
     </div>
 

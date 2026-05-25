@@ -22,6 +22,8 @@ def _sample_entry(*, iteration: int = 1, decision: str = "needs_fix") -> AuditLo
         generated_sql=f"SELECT id FROM clients -- {iteration}",
         audit_result={"overall_risk": 3, "summary": "низкий риск", "findings": []},
         decision=decision,
+        llm_model="deepseek/deepseek-chat",
+        duration_seconds=4.25,
         created_at=datetime(2026, 5, 25, 12, iteration, 0, tzinfo=UTC),
     )
 
@@ -33,6 +35,8 @@ def _sample_group(*, final_status: str = "iteration_limit_exceeded") -> AuditReq
         total_iterations=2,
         final_status=final_status,
         last_created_at=datetime(2026, 5, 25, 12, 2, 0, tzinfo=UTC),
+        llm_model="deepseek/deepseek-chat",
+        duration_seconds=4.25,
     )
 
 
@@ -47,6 +51,10 @@ class FakeAuditRepository:
         self._groups = groups or []
         self._total_groups = total_groups
         self._entries_by_request = entries_by_request or {}
+        self.failures: list[dict] = []
+
+    async def record_run_failure(self, **kwargs) -> None:
+        self.failures.append(kwargs)
 
     async def list_request_groups_page(
         self, *, offset: int, limit: int
@@ -103,6 +111,8 @@ def test_audit_log_page_returns_grouped_list(client_with_audit_logs: TestClient)
     assert "вывести клиентов" in body
     assert f'href="/audit_log/{REQUEST_ID}"' in body
     assert "итераций: 2" in body
+    assert "deepseek/deepseek-chat" in body
+    assert "4.25" in body
     assert "iteration_limit_exceeded" in body
 
 
@@ -135,6 +145,59 @@ def test_audit_log_detail_returns_full_log(client_with_audit_logs: TestClient) -
     assert "Итерация 2" in body
     assert "SELECT id FROM clients -- 2" in body
     assert "approved" in body
+
+
+def _failed_entry() -> AuditLog:
+    return AuditLog(
+        id=99,
+        request_id=REQUEST_ID,
+        iteration=1,
+        task_description="вывести клиентов",
+        generated_sql="",
+        audit_result={"overall_risk": 0, "findings": [], "summary": "нет ключа"},
+        decision="failed",
+        llm_model="openrouter/model",
+        error_code="ValueError",
+        error_message="Не задан LLM_API_KEY",
+        duration_seconds=1.5,
+        created_at=datetime(2026, 5, 25, 13, 0, 0, tzinfo=UTC),
+    )
+
+
+@pytest.fixture
+def client_with_failed_request(client: TestClient) -> TestClient:
+    failed = _failed_entry()
+    repo = FakeAuditRepository(
+        groups=[
+            AuditRequestGroup(
+                request_id=REQUEST_ID,
+                task_description="вывести клиентов",
+                total_iterations=1,
+                final_status="failed",
+                last_created_at=failed.created_at,
+                llm_model="openrouter/model",
+                duration_seconds=1.5,
+            )
+        ],
+        total_groups=1,
+        entries_by_request={REQUEST_ID: [failed]},
+    )
+    app.dependency_overrides[get_audit_repo] = lambda: repo
+    yield client
+    app.dependency_overrides.pop(get_audit_repo, None)
+
+
+def test_audit_log_detail_shows_error(client_with_failed_request: TestClient) -> None:
+    """GET /audit_log/{request_id} — отображение кода и текста ошибки."""
+    response = client_with_failed_request.get(f"/audit_log/{REQUEST_ID}")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "Ошибка выполнения" in body
+    assert "ValueError" in body
+    assert "Не задан LLM_API_KEY" in body
+    assert "1.50" in body
+    assert "failed" in body
 
 
 def test_audit_log_detail_returns_404_for_unknown_request(client: TestClient) -> None:

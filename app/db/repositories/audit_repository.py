@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import AuditLog
@@ -19,10 +19,16 @@ class AuditRequestGroup:
     total_iterations: int
     final_status: str
     last_created_at: datetime
+    llm_model: str | None
+    duration_seconds: float | None
 
 
 def _final_status_from_decision(decision: str) -> str:
-    return "approved" if decision == "approved" else "iteration_limit_exceeded"
+    if decision == "approved":
+        return "approved"
+    if decision == "failed":
+        return "failed"
+    return "iteration_limit_exceeded"
 
 
 class AuditRepository:
@@ -40,6 +46,8 @@ class AuditRepository:
         generated_sql: str,
         audit_result: dict[str, Any],
         decision: str,
+        llm_model: str,
+        duration_seconds: float | None = None,
     ) -> None:
         """Добавляет запись в session; commit делает request-scoped сессия."""
         entry = AuditLog(
@@ -49,8 +57,53 @@ class AuditRepository:
             generated_sql=generated_sql,
             audit_result=audit_result,
             decision=decision,
+            llm_model=llm_model,
+            duration_seconds=duration_seconds,
         )
         self._session.add(entry)
+        await self._session.flush()
+
+    async def record_run_failure(
+        self,
+        *,
+        request_id: str,
+        iteration: int,
+        task_description: str | None,
+        llm_model: str,
+        error_code: str,
+        error_message: str,
+        generated_sql: str = "",
+        duration_seconds: float | None = None,
+    ) -> None:
+        """Запись сбоя запуска (decision=failed) с кодом и текстом ошибки."""
+        entry = AuditLog(
+            request_id=request_id,
+            iteration=iteration,
+            task_description=task_description,
+            generated_sql=generated_sql,
+            audit_result={
+                "overall_risk": 0,
+                "findings": [],
+                "summary": error_message,
+            },
+            decision="failed",
+            llm_model=llm_model,
+            error_code=error_code,
+            error_message=error_message,
+            duration_seconds=duration_seconds,
+        )
+        self._session.add(entry)
+        await self._session.flush()
+
+    async def set_request_duration(
+        self, request_id: str, duration_seconds: float
+    ) -> None:
+        """Проставляет длительность всем записям одного request_id."""
+        await self._session.execute(
+            update(AuditLog)
+            .where(AuditLog.request_id == request_id)
+            .values(duration_seconds=duration_seconds)
+        )
         await self._session.flush()
 
     async def list_request_groups_page(
@@ -68,6 +121,8 @@ class AuditRepository:
                 func.max(AuditLog.created_at).label("last_created_at"),
                 func.max(AuditLog.iteration).label("total_iterations"),
                 func.max(AuditLog.task_description).label("task_description"),
+                func.max(AuditLog.llm_model).label("llm_model"),
+                func.max(AuditLog.duration_seconds).label("duration_seconds"),
             )
             .group_by(AuditLog.request_id)
             .order_by(func.max(AuditLog.created_at).desc())
@@ -82,12 +137,16 @@ class AuditRepository:
                 group_keys.c.task_description,
                 group_keys.c.total_iterations,
                 group_keys.c.last_created_at,
+                group_keys.c.llm_model,
+                group_keys.c.duration_seconds,
                 AuditLog.decision,
-            ).join(
+            )
+            .join(
                 AuditLog,
                 (AuditLog.request_id == group_keys.c.request_id)
                 & (AuditLog.iteration == group_keys.c.total_iterations),
             )
+            .order_by(group_keys.c.last_created_at.desc())
         )
 
         groups = [
@@ -97,6 +156,8 @@ class AuditRepository:
                 total_iterations=row.total_iterations,
                 final_status=_final_status_from_decision(row.decision),
                 last_created_at=row.last_created_at,
+                llm_model=row.llm_model,
+                duration_seconds=row.duration_seconds,
             )
             for row in rows_result.all()
         ]
