@@ -10,7 +10,11 @@ docker compose build
 docker compose up -d
 docker compose run --rm api alembic upgrade head
 ```
-Документация API будет доступна локально [тут](http://127.0.0.1:8000/docs)
+Веб-интерфейс генерации SQL: [http://127.0.0.1:8000/](http://127.0.0.1:8000/). 
+
+Журнал аудита: [http://127.0.0.1:8000/audit_log](http://127.0.0.1:8000/audit_log). 
+
+Документация API: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
 ### Схема GreenData (`data_model.sql`)
 

@@ -72,12 +72,13 @@ def test_openapi_schema_available(client: TestClient) -> None:
     assert "/api/v1/readyz" in paths
 
 
-def test_root_redirects_to_docs(client: TestClient) -> None:
-    """Корень перенаправляет на Swagger UI."""
-    response = client.get("/", follow_redirects=False)
+def test_root_returns_ui_page(client: TestClient) -> None:
+    """Корень отдаёт HTML-интерфейс генерации SQL."""
+    response = client.get("/")
 
-    assert response.status_code in (302, 307)
-    assert response.headers["location"].endswith("/docs")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "Сгенерировать SQL" in response.text
 
 
 def test_request_id_header_is_returned(client: TestClient) -> None:

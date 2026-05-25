@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import AuditLog
@@ -34,3 +35,19 @@ class AuditRepository:
         )
         self._session.add(entry)
         await self._session.flush()
+
+    async def list_page(self, *, offset: int, limit: int) -> tuple[list[AuditLog], int]:
+        """Возвращает страницу записей (новые первые) и общее число строк."""
+        total_result = await self._session.execute(
+            select(func.count()).select_from(AuditLog)
+        )
+        total = total_result.scalar_one()
+
+        rows_result = await self._session.execute(
+            select(AuditLog)
+            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        entries = list(rows_result.scalars().all())
+        return entries, total

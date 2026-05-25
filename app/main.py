@@ -10,8 +10,8 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import RedirectResponse
 
+from app.api.ui import router as ui_router
 from app.api.v1 import api_v1_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger, request_id_ctx
@@ -51,6 +51,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.include_router(ui_router)
 app.include_router(api_v1_router)
 
 
@@ -88,7 +89,3 @@ async def request_id_middleware(
     finally:
         request_id_ctx.reset(token)
 
-
-@app.get("/", include_in_schema=False)
-async def root() -> RedirectResponse:
-    return RedirectResponse(url="/docs")
