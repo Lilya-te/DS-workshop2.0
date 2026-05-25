@@ -68,6 +68,20 @@ _name_re = re.compile("|".join(SENSITIVE_NAME_PATTERNS), re.IGNORECASE)
 _comment_re = re.compile("|".join(SENSITIVE_COMMENT_PATTERNS), re.IGNORECASE)
 
 
+def clean_comment(comment: str) -> str:
+    """Убирает технический хвост от ORM из комментариев заказчика.
+
+    Комментарии вида 'Кредитный договор, SysObjTypeEffective{id=..., ...}'
+    обрезаются до человекочитаемой части.
+    """
+    if not comment:
+        return ""
+    idx = comment.find("SysObjTypeEffective")
+    if idx > 0:
+        comment = comment[:idx]
+    return comment.rstrip(" ,;").strip()
+
+
 def is_sensitive(column_name: str, comment: str) -> bool:
     """True, если поле похоже на чувствительное (PII или секрет)."""
     if _name_re.search(column_name):
@@ -173,7 +187,7 @@ def parse_ddl(ddl_text: str, dialect: str = "postgres") -> list[TableInfo]:
             if isinstance(target, exp.Table):
                 qname = f"{target.db or 'public'}.{target.name}"
                 if qname in tables:
-                    tables[qname].comment = comment_text
+                    tables[qname].comment = clean_comment(comment_text)
         elif kind == "COLUMN":
             if isinstance(target, exp.Column):
                 cname = target.name
@@ -186,7 +200,7 @@ def parse_ddl(ddl_text: str, dialect: str = "postgres") -> list[TableInfo]:
                     if qname in tables:
                         for c in tables[qname].columns:
                             if c.name == cname:
-                                c.comment = comment_text
+                                c.comment = clean_comment(comment_text)
                                 break
 
     # 3. Помечаем чувствительные колонки (после загрузки комментариев)

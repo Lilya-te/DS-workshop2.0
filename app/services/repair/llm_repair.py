@@ -20,7 +20,7 @@ from app.schemas.sql import AuditResult
 from app.services._shared.llm_client import LLMClient
 from app.services._shared.schema_cache import SchemaCache
 from app.services._shared.schema_parser import schema_detailed
-from app.services._shared.table_selector import TableSelector
+from app.services._shared.table_selector import HybridTableSelector
 from app.services.generator.llm_generator import clean_sql, validate_sql
 from app.services.repair.prompts import (
     build_repair_system_prompt,
@@ -39,19 +39,21 @@ class LLMRepair:
         llm: LLMClient,
         schema_cache: SchemaCache,
         top_k_tables: int = 5,
+        emb_model=None,
     ) -> None:
         self._llm = llm
         self._schema = schema_cache
         self._top_k = top_k_tables
-        self._selector: TableSelector | None = None
+        self._emb_model = emb_model
+        self._selector: HybridTableSelector | None = None
         self._selector_fingerprint: int = -1
 
-    def _get_selector(self) -> TableSelector:
+    def _get_selector(self) -> HybridTableSelector:
         """Лениво строит/пересоздаёт селектор при смене схемы."""
         tables = self._schema.all_tables()
         fingerprint = id(tables)
         if self._selector is None or fingerprint != self._selector_fingerprint:
-            self._selector = TableSelector(tables)
+            self._selector = HybridTableSelector(tables, emb_model=self._emb_model)
             self._selector_fingerprint = fingerprint
         return self._selector
 

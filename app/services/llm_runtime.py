@@ -8,6 +8,7 @@ from app.core.logging import get_logger
 from app.db.repositories.audit_repository import AuditRepository
 from app.services._shared.llm_factory import build_llm_client
 from app.services._shared.schema_cache import SchemaCache
+from app.services._shared.embeddings import get_embedding_model
 from app.services.generator.generator import GeneratorService, StubGenerator
 from app.services.generator.llm_generator import LLMGenerator
 from app.services.judge.judge import JudgeService, StubJudge
@@ -100,6 +101,7 @@ def create_generator(
         llm=llm,
         schema_cache=schema_cache,
         top_k_tables=settings.schema_top_k_tables,
+        emb_model=get_embedding_model(),
     )
 
 
@@ -142,6 +144,7 @@ def create_repair(
         llm=llm,
         schema_cache=schema_cache,
         top_k_tables=settings.schema_top_k_tables,
+        emb_model=get_embedding_model(),
     )
 
 

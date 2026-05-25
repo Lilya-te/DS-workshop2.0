@@ -18,6 +18,7 @@ httpx>=0.27.0
 openai>=1.40.0
 sqlglot>=25.0.0
 python-dotenv>=1.0.0
+sentence-transformers>=2.2.0
 
 # Notebooks и анализ
 jupyter>=1.0.0

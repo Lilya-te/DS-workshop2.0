@@ -170,3 +170,129 @@ class TableSelector:
         by_qname = {t.qualified_name: t for t in self._tables}
         ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
         return [(by_qname[q], round(s, 2)) for q, s in ranked[:top_k]]
+
+
+# ----------------------- гибридный селектор (лексика + семантика) -----------------------
+
+def _table_semantic_text(t: TableInfo) -> str:
+    """Текст таблицы для эмбеддинга: имя + комментарий + комментарии колонок."""
+    parts = [t.name, t.comment]
+    col_comments = [c.comment for c in t.columns if c.comment][:20]
+    parts.extend(col_comments)
+    return " ".join(p for p in parts if p)
+
+
+class HybridTableSelector:
+    """Гибридный селектор: лексика (TF-IDF) + семантика (эмбеддинги).
+
+    Если emb_model=None -- работает в чисто лексическом режиме (fallback),
+    эквивалентно TableSelector. Это позволяет не падать, если
+    sentence-transformers не установлен.
+
+    Итоговый скор = alpha * lexical_norm + beta * semantic_norm,
+    оба слоя нормируются в [0,1].
+    """
+
+    WEIGHT_TABLE_NAME = 3.0
+    WEIGHT_TABLE_COMMENT = 2.0
+    WEIGHT_COLUMN_NAME = 1.0
+    WEIGHT_COLUMN_COMMENT = 1.0
+
+    def __init__(
+        self,
+        tables: list[TableInfo],
+        emb_model=None,
+        alpha: float = 0.5,
+        beta: float = 0.5,
+    ) -> None:
+        self._tables = tables
+        self._emb = emb_model
+        self.alpha = alpha
+        self.beta = beta
+        self._idf: dict[str, float] = {}
+        self._table_tokens: dict[str, dict[str, set[str]]] = {}
+        self._table_vecs = None
+        self._fit()
+
+    def _fit(self) -> None:
+        # --- лексический слой ---
+        n_tables = len(self._tables) or 1
+        df: Counter[str] = Counter()
+        for t in self._tables:
+            name_tokens = {_normalize_word(t.name)}
+            comment_tokens = set(extract_keywords(t.comment))
+            col_name_tokens = {_normalize_word(c.name) for c in t.columns}
+            col_comment_tokens: set[str] = set()
+            for c in t.columns:
+                col_comment_tokens.update(extract_keywords(c.comment))
+            self._table_tokens[t.qualified_name] = {
+                "table_name": name_tokens,
+                "table_comment": comment_tokens,
+                "column_name": col_name_tokens,
+                "column_comment": col_comment_tokens,
+            }
+            for w in name_tokens | comment_tokens | col_name_tokens | col_comment_tokens:
+                df[w] += 1
+        for word, freq in df.items():
+            self._idf[word] = math.log(n_tables / (1 + freq)) + 1.0
+
+        # --- семантический слой (только если есть модель) ---
+        if self._emb is not None:
+            texts = [_table_semantic_text(t) for t in self._tables]
+            self._table_vecs = self._emb.encode(texts, normalize_embeddings=True)
+
+    def _lexical_scores(self, query: str) -> dict[str, float]:
+        keywords = extract_keywords(query)
+        scores: dict[str, float] = {}
+        if not keywords:
+            return scores
+        for t in self._tables:
+            zones = self._table_tokens[t.qualified_name]
+            s = 0.0
+            for kw in keywords:
+                w = self._idf.get(kw, 1.0)
+                if kw in zones["table_name"]:
+                    s += self.WEIGHT_TABLE_NAME * w
+                if kw in zones["table_comment"]:
+                    s += self.WEIGHT_TABLE_COMMENT * w
+                if kw in zones["column_name"]:
+                    s += self.WEIGHT_COLUMN_NAME * w
+                if kw in zones["column_comment"]:
+                    s += self.WEIGHT_COLUMN_COMMENT * w
+            if s > 0:
+                scores[t.qualified_name] = s
+        return scores
+
+    def _semantic_scores(self, query: str) -> dict[str, float]:
+        if self._emb is None or self._table_vecs is None:
+            return {}
+        qvec = self._emb.encode([query], normalize_embeddings=True)[0]
+        sims = self._table_vecs @ qvec
+        return {t.qualified_name: float(sim) for t, sim in zip(self._tables, sims)}
+
+    @staticmethod
+    def _normalize(scores: dict[str, float]) -> dict[str, float]:
+        if not scores:
+            return {}
+        vals = list(scores.values())
+        lo, hi = min(vals), max(vals)
+        if hi - lo < 1e-9:
+            return {k: 1.0 for k in scores}
+        return {k: (v - lo) / (hi - lo) for k, v in scores.items()}
+
+    def select_with_scores(self, query: str, top_k: int = 5) -> list[tuple[TableInfo, float]]:
+        lex = self._normalize(self._lexical_scores(query))
+        sem = self._normalize(self._semantic_scores(query))
+        all_names = set(lex) | set(sem)
+        if not all_names:
+            return [(t, 0.0) for t in self._tables[:top_k]]
+        combined = {
+            name: self.alpha * lex.get(name, 0.0) + self.beta * sem.get(name, 0.0)
+            for name in all_names
+        }
+        by_qname = {t.qualified_name: t for t in self._tables}
+        ranked = sorted(combined.items(), key=lambda kv: kv[1], reverse=True)
+        return [(by_qname[q], round(s, 3)) for q, s in ranked[:top_k]]
+
+    def select(self, query: str, top_k: int = 5) -> list[TableInfo]:
+        return [t for t, _ in self.select_with_scores(query, top_k)]
