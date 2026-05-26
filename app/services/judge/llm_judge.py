@@ -25,6 +25,7 @@ from app.services._shared.llm_client import LLMClient
 from app.services._shared.schema_cache import SchemaCache
 from app.services._shared.schema_parser import schema_detailed
 from app.services._shared.table_selector import HybridTableSelector
+from app.services.judge.db_syntax_check import DbSyntaxChecker, check_with_timeout
 from app.services.judge.prompts import (
     build_judge_system_prompt,
     build_judge_user_prompt,
@@ -76,10 +77,16 @@ class LLMJudge:
         llm: LLMClient,
         schema_cache: SchemaCache,
         top_k_tables: int = 5,
+        db_checker: DbSyntaxChecker | None = None,
+        db_check_timeout_seconds: float = 2.0,
     ) -> None:
         self._llm = llm
         self._schema = schema_cache
         self._top_k = top_k_tables
+        # Опциональный третий контур: проверка через реальный PostgreSQL.
+        # None — слой выключен (поведение совместимо с предыдущей версией).
+        self._db_checker = db_checker
+        self._db_timeout = db_check_timeout_seconds
         # Селектор строится один раз на текущей схеме; пересоздаётся при reload.
         self._selector: HybridTableSelector | None = None
         self._selector_fingerprint: int = -1
@@ -125,6 +132,29 @@ class LLMJudge:
             findings_count=len(rules_result.findings),
             selected_tables=selected_qnames,
         )
+
+        # 2.5) Опциональный DB-контур: EXPLAIN в PostgreSQL.
+        # Сливаем находки в rules_result, чтобы они единообразно прошли
+        # через дедупликацию с находками LLM ниже.
+        if self._db_checker is not None:
+            db_result = await check_with_timeout(
+                self._db_checker, sql, self._db_timeout,
+            )
+            if db_result is not None and db_result.findings:
+                rules_result = AuditResult(
+                    overall_risk=max(
+                        rules_result.overall_risk, db_result.overall_risk,
+                    ),
+                    findings=_merge_findings(
+                        rules_result.findings, db_result.findings,
+                    ),
+                    summary=rules_result.summary,
+                )
+                log.info(
+                    "audit.db_check.done",
+                    db_findings=len(db_result.findings),
+                    overall_risk=rules_result.overall_risk,
+                )
 
         # 3) LLM-судья
         system_prompt = build_judge_system_prompt(schema_text)

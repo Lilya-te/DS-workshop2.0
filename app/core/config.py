@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     postgres_user: str = "greendata"
     postgres_password: str = "greendata"
 
+    # Третий контур аудита: проверка SQL через реальный PostgreSQL
+    # (EXPLAIN в транзакции с ROLLBACK, без выполнения опасного DML).
+    # По умолчанию выключено: юнит-тесты не должны требовать живой БД.
+    enable_db_syntax_check: bool = False
+    db_check_timeout_seconds: float = Field(default=2.0, ge=0.1, le=30.0)
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def database_url(self) -> str:

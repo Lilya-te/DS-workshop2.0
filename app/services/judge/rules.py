@@ -54,6 +54,32 @@ SENSITIVE_FALLBACK = frozenset({
 })
 
 
+# Дополнительный регекс-детектор чувствительных колонок поверх schema-атрибута.
+# Срабатывает на типовые шаблоны имён независимо от того, помечена ли колонка
+# в SchemaCache (нужен для случаев, когда генератор «изобретает» имя или когда
+# в схеме сидит опечатка, которую эвристика парсера не покрывает).
+#
+# - address / adress / addres / addrss — корректное и частые опечатки;
+# - adress_ad, address_line — варианты адресных полей из реальных схем GreenData;
+# - email/e_mail/phone — на всякий случай дублируем (в schema-парсере уже есть).
+_SENSITIVE_NAME_HEURISTIC = re.compile(
+    r"""
+    \b(
+        a(?:d{1,2}r|ddr)[a-z]*           # address, adress, addres, addrss и т.п.
+        | [a-z_]*addr[a-z_]*             # address_line, home_addr, …
+        | [a-z_]*adress[a-z_]*           # adress_ad, adress_home (типичная опечатка)
+        | e[-_]?mail
+        | phone[a-z_]*
+        | passport[a-z_]*
+        | snils
+        | inn
+        | full[_]?name
+    )\b
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
 # ----------------------- regex-паттерны -----------------------
 
 _RE = {
@@ -223,6 +249,23 @@ def rules_audit(sql: str, tables: list[TableInfo] | None = None) -> AuditResult:
                             f"Затронет все строки таблицы — необратимая массовая операция.",
                 suggested_fix=f"Добавьте конкретное условие WHERE для {kind}.",
             ))
+        # UPDATE/DELETE ... LIMIT — недопустимый синтаксис в PostgreSQL (MySQL-изм).
+        # sqlglot парсит его в `limit`, но PG такой запрос отклонит ещё до выполнения,
+        # поэтому ловим до выдачи пользователю.
+        if tree.args.get("limit") is not None:
+            findings.append(VulnerabilityFinding(
+                vulnerability_class=VulnerabilityClass.UPDATE_DELETE_WITHOUT_WHERE,
+                risk_score=DEFAULT_RISK_BY_CLASS[VulnerabilityClass.UPDATE_DELETE_WITHOUT_WHERE],
+                explanation=f"{kind} ... LIMIT не поддерживается в PostgreSQL "
+                            f"(это синтаксис MySQL). Запрос упадёт с syntax error при "
+                            f"выполнении; кроме того, LIMIT в DML маскирует отсутствие "
+                            f"корректного WHERE и делает результат недетерминированным.",
+                suggested_fix=f"Уберите LIMIT и используйте однозначный WHERE "
+                              f"(например, по первичному ключу) или CTE с "
+                              f"SELECT ... LIMIT, чтобы заранее зафиксировать строки: "
+                              f"WITH t AS (SELECT id FROM ... LIMIT 1) "
+                              f"{kind} ... WHERE id IN (SELECT id FROM t).",
+            ))
     if kind in ("TRUNCATE", "DROP"):
         findings.append(VulnerabilityFinding(
             vulnerability_class=VulnerabilityClass.UPDATE_DELETE_WITHOUT_WHERE,
@@ -274,11 +317,19 @@ def rules_audit(sql: str, tables: list[TableInfo] | None = None) -> AuditResult:
             ))
 
         # SENSITIVE_FIELD_ACCESS
-        cols_text = " ".join((c.name or "").lower() for c in tree.find_all(exp.Column))
+        col_names = [(c.name or "").lower() for c in tree.find_all(exp.Column)]
+        cols_text = " ".join(col_names)
         matched: list[str] = []
         for sens in sensitive_names:
             if re.search(rf"\b{re.escape(sens)}\b", cols_text):
                 matched.append(sens)
+        # Дополнительная эвристика: ловим адресо-подобные имена с опечатками
+        # (adress_ad, addr_home) даже если в схеме их атрибут sensitive не выставлен.
+        for name in col_names:
+            if not name or name in matched:
+                continue
+            if _SENSITIVE_NAME_HEURISTIC.search(name):
+                matched.append(name)
         if matched:
             findings.append(VulnerabilityFinding(
                 vulnerability_class=VulnerabilityClass.SENSITIVE_FIELD_ACCESS,

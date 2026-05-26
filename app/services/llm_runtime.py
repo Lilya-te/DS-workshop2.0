@@ -11,6 +11,10 @@ from app.services._shared.schema_cache import SchemaCache
 from app.services._shared.embeddings import get_embedding_model
 from app.services.generator.generator import GeneratorService, StubGenerator
 from app.services.generator.llm_generator import LLMGenerator
+from app.services.judge.db_syntax_check import (
+    DbSyntaxChecker,
+    PostgresExplainChecker,
+)
 from app.services.judge.judge import JudgeService, StubJudge
 from app.services.judge.llm_judge import LLMJudge
 from app.services.orchestration import IterationOrchestrator
@@ -105,6 +109,23 @@ def create_generator(
     )
 
 
+def _build_db_checker(settings: Settings) -> DbSyntaxChecker | None:
+    """Создаёт DB-чекер только если флаг включён.
+
+    Импортируем `SessionLocal` лениво — это уважает уже существующий движок
+    в `app.db.session` и не падает в окружениях без БД (dev/CI), пока флаг
+    выключен.
+    """
+    if not settings.enable_db_syntax_check:
+        return None
+    try:
+        from app.db.session import SessionLocal
+    except Exception as e:  # noqa: BLE001
+        log.warning("judge.db_check.unavailable", error=f"{type(e).__name__}: {e}")
+        return None
+    return PostgresExplainChecker(SessionLocal)
+
+
 def create_judge(
     config: LlmRunConfig,
     settings: Settings,
@@ -123,6 +144,8 @@ def create_judge(
         llm=llm,
         schema_cache=schema_cache,
         top_k_tables=settings.schema_top_k_tables,
+        db_checker=_build_db_checker(settings),
+        db_check_timeout_seconds=settings.db_check_timeout_seconds,
     )
 
 
