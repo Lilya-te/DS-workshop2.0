@@ -64,3 +64,39 @@
   на расплывчатых запросах (см. TODO в ноутбуке).
 - На бесплатных тирах OpenRouter возможны 429 (rate limit) — нужно ретраить
   или подключить платный тир.
+
+### `sql_auditor.ipynb`
+
+Ноутбук-аудитор («судья») — второй агент в связке *генератор → судья → исправление*.
+Синхронизирован с `app/services/judge/`:
+
+- контракт `AuditResult` / `VulnerabilityClass` (включая `sql_validation_error`);
+- rule-based слой `rules_audit()` (regex + sqlglot AST);
+- LLM-судья с промптом на русском;
+- гибридный агрегатор «правила → LLM» с фейловером моделей (Colab).
+
+#### Запуск
+
+1. Окружение — как для генератора (`pip install -r requirements.txt`).
+2. API-ключи: Groq / Gemini / OpenRouter через Colab Secrets или переменные окружения.
+3. *(Опционально)* PostgreSQL для runtime-проверки:
+   ```python
+   CONFIG["judge_db_check_enabled"] = True
+   CONFIG["postgres_url"] = "postgresql://greendata:greendata@localhost:5433/greendata_sql"
+   ```
+4. ```bash
+   jupyter lab notebooks/sql_auditor.ipynb
+   ```
+
+#### Что покрывает rule-based слой
+
+| Проверка | Пример |
+|---|---|
+| Чувствительные колонки | `adress_ad`, `password_hash` (эвристика + DDL) |
+| Диалект PostgreSQL | `UPDATE ... LIMIT 1` → finding |
+| SQL-инъекции | тавтологии, `UNION SELECT`, `pg_sleep` |
+| Массовые DML | `DELETE`/`UPDATE` без `WHERE` |
+| DoS | `SELECT` без `LIMIT` |
+
+Entrypoint для прогонов: `audit_for_generator(sql, db_schema)`.
+Контракт для интеграции: `audit_async(sql, db_schema) -> AuditResult`.

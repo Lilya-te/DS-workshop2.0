@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     # Число релевантных таблиц, подаваемых в контекст промпта
     schema_top_k_tables: int = Field(default=5, ge=1, le=20)
 
+    # Доп. уровень валидации SQL: безопасный EXPLAIN в PostgreSQL (опционально).
+    judge_db_check_enabled: bool = False
+    judge_db_check_timeout: float = Field(default=2.5, ge=0.1, le=30.0)
+
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 

@@ -15,21 +15,24 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from pydantic import ValidationError
 
 from app.core.logging import get_logger
-from app.schemas.sql import AuditResult, VulnerabilityFinding
+from app.schemas.sql import AuditResult, VulnerabilityClass, VulnerabilityFinding
+from app.db.session import engine
 from app.services._shared.llm_client import LLMClient
 from app.services._shared.schema_cache import SchemaCache
 from app.services._shared.schema_parser import schema_detailed
-from app.services._shared.table_selector import TableSelector
+from app.services._shared.table_selector import HybridTableSelector
 from app.services.judge.prompts import (
     build_judge_system_prompt,
     build_judge_user_prompt,
 )
 from app.services.judge.rules import rules_audit
+from sqlalchemy import text
 
 log = get_logger("app.judge")
 
@@ -76,20 +79,64 @@ class LLMJudge:
         llm: LLMClient,
         schema_cache: SchemaCache,
         top_k_tables: int = 5,
+        db_check_enabled: bool = False,
+        db_check_timeout: float = 2.5,
     ) -> None:
         self._llm = llm
         self._schema = schema_cache
         self._top_k = top_k_tables
+        self._db_check_enabled = db_check_enabled
+        self._db_check_timeout = db_check_timeout
         # Селектор строится один раз на текущей схеме; пересоздаётся при reload.
-        self._selector: TableSelector | None = None
+        self._selector: HybridTableSelector | None = None
         self._selector_fingerprint: int = -1
 
-    def _get_selector(self) -> TableSelector:
-        """Лениво строит/пересоздаёт селектор, если схема изменилась."""
+    async def _db_explain_check(self, sql: str) -> str | None:
+        """Пытается прогнать EXPLAIN в PostgreSQL.
+
+        Возвращает None, если всё ок. Иначе — текст ошибки (коротко),
+        который можно вложить в finding.
+
+        Важно:
+        - EXPLAIN не выполняет запрос, а только строит план;
+        - выполняем в отдельном соединении без commit;
+        - защищаемся от multi-statement (наивная проверка).
+        """
+        if not self._db_check_enabled:
+            return None
+
+        parts = [p.strip() for p in sql.strip().split(";") if p.strip()]
+        if len(parts) != 1:
+            return "Обнаружено несколько SQL-операторов (multi-statement). Разрешён только один оператор."
+
+        stmt = parts[0]
+        explain_sql = f"EXPLAIN {stmt}"
+
+        try:
+            async with engine.connect() as conn:
+                await asyncio.wait_for(
+                    conn.execute(text(explain_sql)),
+                    timeout=self._db_check_timeout,
+                )
+        except TimeoutError:
+            return f"Таймаут проверки EXPLAIN (>{self._db_check_timeout:.1f}s)."
+        except Exception as e:
+            msg = str(e).replace("\n", " ").strip()
+            return msg[:300]
+
+        return None
+
+    def _get_selector(self) -> HybridTableSelector:
+        """Лениво строит/пересоздаёт селектор, если схема изменилась.
+
+        Пока без эмбеддингов (emb_model=None) -- поведение эквивалентно
+        лексическому TableSelector. Семантику можно включить, прокинув
+        emb_model из llm_runtime (как у генератора/репаратора).
+        """
         tables = self._schema.all_tables()
         fingerprint = id(tables)
         if self._selector is None or fingerprint != self._selector_fingerprint:
-            self._selector = TableSelector(tables)
+            self._selector = HybridTableSelector(tables, emb_model=None)
             self._selector_fingerprint = fingerprint
         return self._selector
 
@@ -114,6 +161,29 @@ class LLMJudge:
 
         # 2) Правила
         rules_result = rules_audit(sql, tables=selected)
+
+        # 2.1) Опциональная проверка в PostgreSQL через EXPLAIN
+        db_error = await self._db_explain_check(sql)
+        if db_error:
+            rules_result.findings.append(
+                VulnerabilityFinding(
+                    vulnerability_class=VulnerabilityClass.SQL_VALIDATION_ERROR,
+                    risk_score=8,
+                    explanation=(
+                        "Запрос не проходит проверку в PostgreSQL (EXPLAIN вернул ошибку). "
+                        f"Текст ошибки: {db_error}"
+                    ),
+                    suggested_fix="Исправь SQL под синтаксис PostgreSQL так, чтобы EXPLAIN выполнялся без ошибок.",
+                )
+            )
+            rules_result.overall_risk = max(
+                rules_result.overall_risk, 8
+            )
+            rules_result.summary = (
+                "Обнаружена ошибка валидации SQL на PostgreSQL (EXPLAIN). "
+                + rules_result.summary
+            )
+
         log.info(
             "audit.rules.done",
             overall_risk=rules_result.overall_risk,

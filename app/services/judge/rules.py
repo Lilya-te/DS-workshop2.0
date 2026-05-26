@@ -6,7 +6,7 @@
   очевидные находки и фокусировался на семантике;
 - работает как фолбэк, если LLM упал или вернул невалидный JSON.
 
-Покрывает все 9 классов из app/schemas/sql.py::VulnerabilityClass.
+Покрывает классы из app/schemas/sql.py::VulnerabilityClass (в т.ч. sql_validation_error).
 
 Сигнатура:
     rules_audit(sql: str, tables: list[TableInfo] | None) -> AuditResult
@@ -30,6 +30,7 @@ from app.services._shared.schema_parser import TableInfo
 # ----------------------- базовый риск по классам -----------------------
 
 DEFAULT_RISK_BY_CLASS: dict[VulnerabilityClass, int] = {
+    VulnerabilityClass.SQL_VALIDATION_ERROR:          8,
     VulnerabilityClass.SQL_INJECTION_CLASSIC:        10,
     VulnerabilityClass.UNION_BASED_INJECTION:         9,
     VulnerabilityClass.TIME_BASED_BLIND_INJECTION:    8,
@@ -51,6 +52,7 @@ SENSITIVE_FALLBACK = frozenset({
     "ssn", "passport", "snils", "inn",
     "card_number", "card_token", "cvv", "pan",
     "email", "phone",
+    "address", "adress", "adress_ad",
 })
 
 
@@ -80,6 +82,10 @@ _RE = {
     "execute_format":   re.compile(r"""\bEXECUTE\s+format\s*\(""", re.IGNORECASE),
     "execute_using":    re.compile(r"""\bEXECUTE\b[\s\S]*?\bUSING\b""", re.IGNORECASE),
     "execute_concat":   re.compile(r"""\bEXECUTE\b[\s\S]*?\|\|""", re.IGNORECASE),
+    "dml_limit":        re.compile(
+        r"""\b(?:UPDATE|DELETE)\b[\s\S]*?\bLIMIT\s+\d+\b""",
+        re.IGNORECASE,
+    ),
 }
 
 
@@ -180,6 +186,17 @@ def rules_audit(sql: str, tables: list[TableInfo] | None = None) -> AuditResult:
                 suggested_fix="Передавайте значения через EXECUTE ... USING $1, "
                               "а имена объектов — через quote_ident().",
             ))
+
+    # ---------- 4.1 PostgreSQL dialect check ----------
+    if _RE["dml_limit"].search(sql):
+        findings.append(VulnerabilityFinding(
+            vulnerability_class=VulnerabilityClass.UPDATE_DELETE_WITHOUT_WHERE,
+            risk_score=7,
+            explanation="Используется LIMIT в UPDATE/DELETE. В PostgreSQL такой синтаксис "
+                        "не поддерживается и приведет к ошибке выполнения.",
+            suggested_fix="Уберите LIMIT и ограничьте строки через WHERE + подзапрос "
+                          "по ключу (например, WHERE id IN (SELECT id ... LIMIT N)).",
+        ))
 
     # ---------- 5. UNION_BASED_INJECTION ----------
     has_union = bool(re.search(r"\bUNION\b\s+(?:ALL\s+)?SELECT\b", sql, re.IGNORECASE))

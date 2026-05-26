@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 class VulnerabilityClass(StrEnum):
     """Классы уязвимостей из ТЗ заказчика."""
 
+    SQL_VALIDATION_ERROR = "sql_validation_error"
     SQL_INJECTION_CLASSIC = "sql_injection_classic"
     UNION_BASED_INJECTION = "union_based_injection"
     TIME_BASED_BLIND_INJECTION = "time_based_blind_injection"

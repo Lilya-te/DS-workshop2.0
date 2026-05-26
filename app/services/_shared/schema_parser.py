@@ -50,7 +50,7 @@ SENSITIVE_NAME_PATTERNS = [
     r"email", r"phone", r"birthday", r"birth_date",
     r"full_name", r"fio\b",
     r"salary", r"balance",
-    r"address",
+    r"address", r"adress", r"addr",
 ]
 
 # Русские и английские триггеры в комментариях.
